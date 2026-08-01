@@ -54,37 +54,88 @@ Instead of continuously restarting `pppd`, the watchdog follows a staged recover
 
 ```text
 Normal Operation
-        │
-        ▼
+       │
+       ▼
 5 consecutive connectivity failures
-        │
-        ▼
+       │
+       ▼
 PPP Recovery
-        │
-        ▼
+       │
+       ▼
 3-minute stabilization
-        │
-   ┌────┴────┐
-   │         │
-Recovered   Failed
-   │         │
-   ▼         ▼
- NORMAL   30-minute cooldown
-              │
-              ▼
-       PPP Recovery
-              │
-              ▼
-       60-minute cooldown
-              │
-              ▼
-       PPP Recovery
-              │
-              ▼
-      120-minute cooldown
-              │
-              ▼
-     Guarded Gateway Reboot
+       │
+  ┌────┴────┐
+  │         │
+Recovered  Failed
+  │         │
+  ▼         ▼
+NORMAL   30-minute cooldown
+            │
+            ▼
+ Connectivity monitored
+   every 15 seconds
+            │
+     ┌──────┴──────┐
+     │             │
+ Internet      Cooldown
+ Restored      Completed
+     │             │
+     ▼             ▼
+ NORMAL      PPP Recovery
+                    │
+                    ▼
+           3-minute stabilization
+                    │
+              ┌─────┴─────┐
+              │           │
+          Recovered     Failed
+              │           │
+              ▼           ▼
+           NORMAL    60-minute cooldown
+                           │
+                           ▼
+                Connectivity monitored
+                  every 15 seconds
+                           │
+                    ┌──────┴──────┐
+                    │             │
+                Internet      Cooldown
+                Restored      Completed
+                    │             │
+                    ▼             ▼
+                 NORMAL     PPP Recovery
+                                 │
+                                 ▼
+                        3-minute stabilization
+                                 │
+                           ┌─────┴─────┐
+                           │           │
+                       Recovered     Failed
+                           │           │
+                           ▼           ▼
+                        NORMAL    120-minute cooldown
+                                        │
+                                        ▼
+                             Connectivity monitored
+                               every 15 seconds
+                                        │
+                               ┌────────┴────────┐
+                               │                 │
+                         Internet           Cooldown
+                         Restored           Completed
+                               │                 │
+                               ▼                 ▼
+                            NORMAL        Final PPP Recovery
+                                                │
+                                                ▼
+                                         3-minute stabilization
+                                                │
+                                          ┌─────┴─────┐
+                                          │           │
+                                      Recovered     Failed
+                                          │           │
+                                          ▼           ▼
+                                       NORMAL   Guarded Gateway Reboot
 ```
 
 ---
