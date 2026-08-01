@@ -1,3 +1,8 @@
+
+# dragino-ppp-recovery-watchdog
+PPP recovery watchdog for Dragino OpenWrt LoRaWAN gateways using pppd.
+
+
 ## License
 
 This project is released under the **MIT License**.
