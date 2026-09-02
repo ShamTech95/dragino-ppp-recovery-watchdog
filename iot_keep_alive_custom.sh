@@ -41,6 +41,7 @@ toggle_3g_time=90
 last_check_3g_dial=0
 RETRY_POWEROFF_GSM=5
 RETRY_REBOOT_GSM=61
+
 # Custom cellular PPP recovery policy
 PPP_FAILURE_LIMIT=5
 PPP_STOP_TIMEOUT=15
@@ -61,10 +62,10 @@ ppp_next_passive_check=0
 last_auto_reboot=0
 
 if [ -f "$AUTO_REBOOT_TIMESTAMP_FILE" ]; then
-   last_auto_reboot=$(cat "$AUTO_REBOOT_TIMESTAMP_FILE" 2>/dev/null)
-   case "$last_auto_reboot" in
-       ''|*[!0-9]*) last_auto_reboot=0 ;;
-   esac
+    last_auto_reboot=$(cat "$AUTO_REBOOT_TIMESTAMP_FILE" 2>/dev/null)
+    case "$last_auto_reboot" in
+        ''|*[!0-9]*) last_auto_reboot=0 ;;
+    esac
 fi
 
 ONE="1"
@@ -187,300 +188,300 @@ reload_iot_service() {
 
 get_cellular_l3_dev()
 {
-   local cell_dev
-   cell_dev=""
+    local cell_dev
+    cell_dev=""
 
-   if command -v ifstatus >/dev/null 2>&1 && command -v jsonfilter >/dev/null 2>&1; then
-       cell_dev=$(ifstatus cellular 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
-   fi
+    if command -v ifstatus >/dev/null 2>&1 && command -v jsonfilter >/dev/null 2>&1; then
+        cell_dev=$(ifstatus cellular 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
+    fi
 
-   if [ -z "$cell_dev" ]; then
-       cell_dev=$(ifconfig 2>/dev/null | awk '/^3g-|^ppp[0-9]|^wwan/{print $1; exit}')
-   fi
+    if [ -z "$cell_dev" ]; then
+        cell_dev=$(ifconfig 2>/dev/null | awk '/^3g-|^ppp[0-9]|^wwan/{print $1; exit}')
+    fi
 
-   [ -z "$cell_dev" ] && cell_dev="3g-cellular"
-   echo "$cell_dev"
+    [ -z "$cell_dev" ] && cell_dev="3g-cellular"
+    echo "$cell_dev"
 }
 
 cellular_is_active_backhaul()
 {
-   local cell_dev
-   local default_dev
+    local cell_dev
+    local default_dev
 
-   cell_dev=$(get_cellular_l3_dev)
-   default_dev=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+    cell_dev=$(get_cellular_l3_dev)
+    default_dev=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
 
-   [ -n "$cell_dev" ] && [ "$default_dev" = "$cell_dev" ]
+    [ -n "$cell_dev" ] && [ "$default_dev" = "$cell_dev" ]
 }
 
 check_cellular_internet()
 {
-   local cell_dev
-   local gsm_ping
+    local cell_dev
+    local gsm_ping
 
-   cell_dev=$(get_cellular_l3_dev)
+    cell_dev=$(get_cellular_l3_dev)
 
-   if ! ifconfig "$cell_dev" >/dev/null 2>&1; then
-       return 1
-   fi
+    if ! ifconfig "$cell_dev" >/dev/null 2>&1; then
+        return 1
+    fi
 
-   gsm_ping=$(fping -I "$cell_dev" "$PING_HOST" 2>/dev/null | grep -c alive)
+    gsm_ping=$(fping -I "$cell_dev" "$PING_HOST" 2>/dev/null | grep -c alive)
 
-   if [ "$gsm_ping" -eq 0 ]; then
-       gsm_ping=$(fping -I "$cell_dev" "$PING_HOST2" 2>/dev/null | grep -c alive)
-   fi
+    if [ "$gsm_ping" -eq 0 ]; then
+        gsm_ping=$(fping -I "$cell_dev" "$PING_HOST2" 2>/dev/null | grep -c alive)
+    fi
 
-   [ "$gsm_ping" -gt 0 ]
+    [ "$gsm_ping" -gt 0 ]
 }
 
 find_cellular_pppd_pid()
 {
-   local cell_tty
-   local pid
-   local cmdline
+    local cell_tty
+    local pid
+    local cmdline
 
-   cell_tty=$(uci -q get network.cellular.device)
-   [ -z "$cell_tty" ] && cell_tty="/dev/ttyUSB3"
+    cell_tty=$(uci -q get network.cellular.device)
+    [ -z "$cell_tty" ] && cell_tty="/dev/ttyUSB3"
 
-   for pid in $(pgrep pppd 2>/dev/null); do
-       [ -r "/proc/$pid/cmdline" ] || continue
+    for pid in $(pgrep pppd 2>/dev/null); do
+        [ -r "/proc/$pid/cmdline" ] || continue
 
-       cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+        cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
 
-       if echo "$cmdline" | grep -q "$cell_tty" || \
-          echo "$cmdline" | grep -q "ipparam cellular" || \
-          echo "$cmdline" | grep -q "3g-cellular"; then
-           echo "$pid"
-           return 0
-       fi
-   done
+        if echo "$cmdline" | grep -q "$cell_tty" || \
+           echo "$cmdline" | grep -q "ipparam cellular" || \
+           echo "$cmdline" | grep -q "3g-cellular"; then
+            echo "$pid"
+            return 0
+        fi
+    done
 
-   return 1
+    return 1
 }
 
 cleanup_stale_cellular_lock()
 {
-   local cell_tty
-   local tty_base
-   local lock_file
-   local lock_pid
+    local cell_tty
+    local tty_base
+    local lock_file
+    local lock_pid
 
-   cell_tty=$(uci -q get network.cellular.device)
-   [ -z "$cell_tty" ] && cell_tty="/dev/ttyUSB3"
+    cell_tty=$(uci -q get network.cellular.device)
+    [ -z "$cell_tty" ] && cell_tty="/dev/ttyUSB3"
 
-   tty_base=$(basename "$cell_tty")
-   lock_file="/var/lock/LCK..$tty_base"
+    tty_base=$(basename "$cell_tty")
+    lock_file="/var/lock/LCK..$tty_base"
 
-   [ -f "$lock_file" ] || return 0
+    [ -f "$lock_file" ] || return 0
 
-   lock_pid=$(cat "$lock_file" 2>/dev/null | tr -d ' \n\r')
+    lock_pid=$(cat "$lock_file" 2>/dev/null | tr -d ' \n\r')
 
-   case "$lock_pid" in
-       ''|*[!0-9]*) return 0 ;;
-   esac
+    case "$lock_pid" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
 
-   if ! kill -0 "$lock_pid" 2>/dev/null; then
-       logger -t iot_keep_alive "Removing stale cellular serial lock $lock_file (dead PID: $lock_pid)"
-       rm -f "$lock_file"
-   fi
+    if ! kill -0 "$lock_pid" 2>/dev/null; then
+        logger -t iot_keep_alive "Removing stale cellular serial lock $lock_file (dead PID: $lock_pid)"
+        rm -f "$lock_file"
+    fi
 }
 
 recover_cellular_ppp()
 {
-   local ppp_pid
-   local waited
+    local ppp_pid
+    local waited
 
-   logger -t iot_keep_alive "Starting targeted cellular PPP recovery"
+    logger -t iot_keep_alive "Starting targeted cellular PPP recovery"
 
-   ifdown cellular 2>/dev/null
+    ifdown cellular 2>/dev/null
 
-   waited=0
+    waited=0
 
-   while [ "$waited" -lt "$PPP_STOP_TIMEOUT" ]; do
-       ppp_pid=$(find_cellular_pppd_pid)
+    while [ "$waited" -lt "$PPP_STOP_TIMEOUT" ]; do
+        ppp_pid=$(find_cellular_pppd_pid)
 
-       [ -z "$ppp_pid" ] && break
+        [ -z "$ppp_pid" ] && break
 
-       sleep 1
-       waited=$((waited + 1))
-   done
+        sleep 1
+        waited=$((waited + 1))
+    done
 
-   ppp_pid=$(find_cellular_pppd_pid)
+    ppp_pid=$(find_cellular_pppd_pid)
 
-   if [ -n "$ppp_pid" ] && kill -0 "$ppp_pid" 2>/dev/null; then
-       logger -t iot_keep_alive "Cellular pppd still alive after ifdown; sending SIGTERM to PID $ppp_pid"
+    if [ -n "$ppp_pid" ] && kill -0 "$ppp_pid" 2>/dev/null; then
+        logger -t iot_keep_alive "Cellular pppd still alive after ifdown; sending SIGTERM to PID $ppp_pid"
 
-       kill -15 "$ppp_pid" 2>/dev/null
-       sleep 2
+        kill -15 "$ppp_pid" 2>/dev/null
+        sleep 2
 
-       if kill -0 "$ppp_pid" 2>/dev/null; then
-           logger -t iot_keep_alive "Cellular pppd still alive after SIGTERM; sending SIGKILL to PID $ppp_pid"
-           kill -9 "$ppp_pid" 2>/dev/null
-       fi
-   fi
+        if kill -0 "$ppp_pid" 2>/dev/null; then
+            logger -t iot_keep_alive "Cellular pppd still alive after SIGTERM; sending SIGKILL to PID $ppp_pid"
+            kill -9 "$ppp_pid" 2>/dev/null
+        fi
+    fi
 
-   cleanup_stale_cellular_lock
+    cleanup_stale_cellular_lock
 
-   ifup cellular 2>/dev/null
+    ifup cellular 2>/dev/null
 
-   ppp_wait_deadline=$(($(date +%s) + PPP_START_TIMEOUT))
-   ppp_state="PPP_WAIT"
+    ppp_wait_deadline=$(($(date +%s) + PPP_START_TIMEOUT))
+    ppp_state="PPP_WAIT"
 }
 
 reset_ppp_recovery()
 {
-   if [ "$ppp_state" != "NORMAL" ] || [ "$ppp_fail_count" -ne 0 ]; then
-       logger -t iot_keep_alive "Cellular Internet recovered; PPP recovery state reset to NORMAL"
-   fi
+    if [ "$ppp_state" != "NORMAL" ] || [ "$ppp_fail_count" -ne 0 ]; then
+        logger -t iot_keep_alive "Cellular Internet recovered; PPP recovery state reset to NORMAL"
+    fi
 
-   ppp_fail_count=0
-   ppp_recovery_stage=0
-   ppp_state="NORMAL"
-   ppp_wait_deadline=0
-   ppp_cooldown_deadline=0
-   ppp_next_passive_check=0
+    ppp_fail_count=0
+    ppp_recovery_stage=0
+    ppp_state="NORMAL"
+    ppp_wait_deadline=0
+    ppp_cooldown_deadline=0
+    ppp_next_passive_check=0
 }
 
 request_guarded_reboot()
 {
-   local now
-   local elapsed
-   local remaining
+    local now
+    local elapsed
+    local remaining
 
-   if check_cellular_internet; then
-       logger -t iot_keep_alive "Final cellular Internet check passed; reboot cancelled"
-       reset_ppp_recovery
-       return
-   fi
+    if check_cellular_internet; then
+        logger -t iot_keep_alive "Final cellular Internet check passed; reboot cancelled"
+        reset_ppp_recovery
+        return
+    fi
 
-   now=$(date +%s)
+    now=$(date +%s)
 
-   case "$last_auto_reboot" in
-       ''|*[!0-9]*) last_auto_reboot=0 ;;
-   esac
+    case "$last_auto_reboot" in
+        ''|*[!0-9]*) last_auto_reboot=0 ;;
+    esac
 
-   if [ "$last_auto_reboot" -eq 0 ]; then
-       elapsed=$AUTO_REBOOT_GUARD
-   elif [ "$now" -ge "$last_auto_reboot" ]; then
-       elapsed=$((now - last_auto_reboot))
-   else
-       elapsed=0
-   fi
+    if [ "$last_auto_reboot" -eq 0 ]; then
+        elapsed=$AUTO_REBOOT_GUARD
+    elif [ "$now" -ge "$last_auto_reboot" ]; then
+        elapsed=$((now - last_auto_reboot))
+    else
+        elapsed=0
+    fi
 
-   if [ "$elapsed" -ge "$AUTO_REBOOT_GUARD" ]; then
-       echo "$now" > "$AUTO_REBOOT_TIMESTAMP_FILE"
-       last_auto_reboot=$now
+    if [ "$elapsed" -ge "$AUTO_REBOOT_GUARD" ]; then
+        echo "$now" > "$AUTO_REBOOT_TIMESTAMP_FILE"
+        last_auto_reboot=$now
 
-       logger -t iot_keep_alive "Final PPP recovery failed; guarded gateway reboot authorized"
+        logger -t iot_keep_alive "Final PPP recovery failed; guarded gateway reboot authorized"
 
-       sync
-       sleep 3
-       reboot
-       return
-   fi
+        sync
+        sleep 3
+        reboot
+        return
+    fi
 
-   remaining=$((AUTO_REBOOT_GUARD - elapsed))
+    remaining=$((AUTO_REBOOT_GUARD - elapsed))
 
-   logger -t iot_keep_alive "Gateway reboot blocked by 6-hour guard ($remaining seconds remaining); passive cellular checks continue"
+    logger -t iot_keep_alive "Gateway reboot blocked by 6-hour guard ($remaining seconds remaining); passive cellular checks continue"
 
-   ppp_state="REBOOT_GUARD_WAIT"
-   ppp_wait_deadline=$((now + remaining))
-   ppp_next_passive_check=$now
+    ppp_state="REBOOT_GUARD_WAIT"
+    ppp_wait_deadline=$((now + remaining))
+    ppp_next_passive_check=$now
 }
 
 cellular_ppp_recovery_tick()
 {
-   local now
-   local cooldown_seconds
+    local now
+    local cooldown_seconds
 
-   now=$(date +%s)
+    now=$(date +%s)
 
-   case "$ppp_state" in
+    case "$ppp_state" in
 
-       NORMAL)
-           if check_cellular_internet; then
-               reset_ppp_recovery
-               return
-           fi
+        NORMAL)
+            if check_cellular_internet; then
+                reset_ppp_recovery
+                return
+            fi
 
-           ppp_fail_count=$((ppp_fail_count + 1))
+            ppp_fail_count=$((ppp_fail_count + 1))
 
-           logger -t iot_keep_alive "Cellular Internet failure $ppp_fail_count of $PPP_FAILURE_LIMIT"
+            logger -t iot_keep_alive "Cellular Internet failure $ppp_fail_count of $PPP_FAILURE_LIMIT"
 
-           if [ "$ppp_fail_count" -ge "$PPP_FAILURE_LIMIT" ]; then
-               ppp_recovery_stage=1
-               recover_cellular_ppp
-           fi
-           ;;
+            if [ "$ppp_fail_count" -ge "$PPP_FAILURE_LIMIT" ]; then
+                ppp_recovery_stage=1
+                recover_cellular_ppp
+            fi
+            ;;
 
-       PPP_WAIT)
-           if check_cellular_internet; then
-               reset_ppp_recovery
-               return
-           fi
+        PPP_WAIT)
+            if check_cellular_internet; then
+                reset_ppp_recovery
+                return
+            fi
 
-           [ "$now" -lt "$ppp_wait_deadline" ] && return
+            [ "$now" -lt "$ppp_wait_deadline" ] && return
 
-           if [ "$ppp_recovery_stage" -ge 4 ]; then
-               logger -t iot_keep_alive "Final PPP recovery failed; evaluating guarded reboot"
-               request_guarded_reboot
-               return
-           fi
+            if [ "$ppp_recovery_stage" -ge 4 ]; then
+                logger -t iot_keep_alive "Final PPP recovery failed; evaluating guarded reboot"
+                request_guarded_reboot
+                return
+            fi
 
-           case "$ppp_recovery_stage" in
-               1) cooldown_seconds=$PPP_COOLDOWN_1 ;;
-               2) cooldown_seconds=$PPP_COOLDOWN_2 ;;
-               3) cooldown_seconds=$PPP_COOLDOWN_3 ;;
-           esac
+            case "$ppp_recovery_stage" in
+                1) cooldown_seconds=$PPP_COOLDOWN_1 ;;
+                2) cooldown_seconds=$PPP_COOLDOWN_2 ;;
+                3) cooldown_seconds=$PPP_COOLDOWN_3 ;;
+            esac
 
-           ppp_cooldown_deadline=$((now + cooldown_seconds))
-           ppp_next_passive_check=$now
-           ppp_state="COOLDOWN"
+            ppp_cooldown_deadline=$((now + cooldown_seconds))
+            ppp_next_passive_check=$now
+            ppp_state="COOLDOWN"
 
-           logger -t iot_keep_alive "PPP recovery stage $ppp_recovery_stage failed; entering $cooldown_seconds second cooldown"
-           ;;
+            logger -t iot_keep_alive "PPP recovery stage $ppp_recovery_stage failed; entering $cooldown_seconds second cooldown"
+            ;;
 
-       COOLDOWN)
-           if [ "$now" -ge "$ppp_next_passive_check" ]; then
-               ppp_next_passive_check=$((now + PPP_COOLDOWN_CHECK_INTERVAL))
+        COOLDOWN)
+            if [ "$now" -ge "$ppp_next_passive_check" ]; then
+                ppp_next_passive_check=$((now + PPP_COOLDOWN_CHECK_INTERVAL))
 
-               if check_cellular_internet; then
-                   logger -t iot_keep_alive "Cellular Internet returned during cooldown"
-                   reset_ppp_recovery
-                   return
-               fi
+                if check_cellular_internet; then
+                    logger -t iot_keep_alive "Cellular Internet returned during cooldown"
+                    reset_ppp_recovery
+                    return
+                fi
 
-               logger -t iot_keep_alive "Cooldown passive cellular Internet check failed; no PPP action taken"
-           fi
+                logger -t iot_keep_alive "Cooldown passive cellular Internet check failed; no PPP action taken"
+            fi
 
-           [ "$now" -lt "$ppp_cooldown_deadline" ] && return
+            [ "$now" -lt "$ppp_cooldown_deadline" ] && return
 
-           ppp_recovery_stage=$((ppp_recovery_stage + 1))
+            ppp_recovery_stage=$((ppp_recovery_stage + 1))
 
-           logger -t iot_keep_alive "Cooldown complete; starting PPP recovery stage $ppp_recovery_stage"
+            logger -t iot_keep_alive "Cooldown complete; starting PPP recovery stage $ppp_recovery_stage"
 
-           recover_cellular_ppp
+            recover_cellular_ppp
 
-           ppp_cooldown_deadline=0
-           ppp_next_passive_check=0
-           ;;
+            ppp_cooldown_deadline=0
+            ppp_next_passive_check=0
+            ;;
 
-       REBOOT_GUARD_WAIT)
-           if [ "$now" -ge "$ppp_next_passive_check" ]; then
-               ppp_next_passive_check=$((now + PPP_COOLDOWN_CHECK_INTERVAL))
+        REBOOT_GUARD_WAIT)
+            if [ "$now" -ge "$ppp_next_passive_check" ]; then
+                ppp_next_passive_check=$((now + PPP_COOLDOWN_CHECK_INTERVAL))
 
-               if check_cellular_internet; then
-                   logger -t iot_keep_alive "Cellular Internet recovered while reboot guard was active"
-                   reset_ppp_recovery
-                   return
-               fi
-           fi
+                if check_cellular_internet; then
+                    logger -t iot_keep_alive "Cellular Internet recovered while reboot guard was active"
+                    reset_ppp_recovery
+                    return
+                fi
+            fi
 
-           if [ "$now" -ge "$ppp_wait_deadline" ]; then
-               request_guarded_reboot
-           fi
-           ;;
-   esac
+            if [ "$now" -ge "$ppp_wait_deadline" ]; then
+                request_guarded_reboot
+            fi
+            ;;
+    esac
 }
 
 check_3g_connection()
@@ -762,22 +763,18 @@ do
 		logger -t iot_keep_alive "Internet fail. Check interfaces for network connection"
 		has_internet=0
 		internetdetect=$(uci -q get system.@system[0].internet_detect)
-
-		if ! cellular_is_active_backhaul; then
-		   if [ "$internetdetect" == "checked" ] || [ -z $internetdetect ];then
-
-		       cur_flag_time=$(date +%s)
-
-		       if [ -z $has_internet_flag_time ] ; then
-		           has_internet_flag_time=$(date +%s)
-		       else
-		           time_diff=$((cur_flag_time - has_internet_flag_time))
-
-		           if [ $time_diff -gt 900 -a $time_diff -le 3000 ]; then
-		               reboot
-		           fi
-		       fi
-		   fi
+if [ "$ppp_state" = "NORMAL" ] && ! cellular_is_active_backhaul; then
+		    if [ "$internetdetect" == "checked" ] || [ -z $internetdetect ];then
+		        cur_flag_time=$(date +%s)
+		        if [ -z $has_internet_flag_time ] ; then
+		            has_internet_flag_time=$(date +%s)
+		        else
+		            time_diff=$((cur_flag_time - has_internet_flag_time))
+		            if [ $time_diff -gt 900 -a $time_diff -le 3000 ]; then
+		                reboot   #Execute reboot if the gateway loses Internet connectivity for more than 900 seconds
+		            fi
+		        fi
+		    fi
 		fi
 
 		if [ "$iot_online" = "0" ]; then
@@ -793,10 +790,21 @@ do
 	# Custom recovery is intentionally limited to an already-active cellular backhaul.
 	# It does not select WAN/WiFi/cellular, change routes, or power the modem down because Ethernet is healthy.
 
-	if [ "$(uci -q get network.cellular.auto)" = "1" ] && cellular_is_active_backhaul; then
-	   cellular_ppp_recovery_tick
+	if [ "$(uci -q get network.cellular.auto)" = "1" ]; then
+	    if [ "$ppp_state" != "NORMAL" ]; then
+	        if [ "$global_ping" = "1" ] && ! cellular_is_active_backhaul; then
+	            logger -t iot_keep_alive "Internet restored through non-cellular backhaul; cancelling custom cellular PPP recovery"
+	            reset_ppp_recovery
+	        else
+	            cellular_ppp_recovery_tick
+	        fi
+	    elif cellular_is_active_backhaul; then
+	        cellular_ppp_recovery_tick
+	    elif [ "$ppp_fail_count" -ne 0 ]; then
+	        reset_ppp_recovery
+	    fi
 	elif [ "$ppp_state" != "NORMAL" ] || [ "$ppp_fail_count" -ne 0 ]; then
-	   reset_ppp_recovery
+	    reset_ppp_recovery
 	fi
 
 	case $server_type in
