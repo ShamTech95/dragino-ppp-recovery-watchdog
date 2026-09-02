@@ -790,21 +790,17 @@ if [ "$ppp_state" = "NORMAL" ] && ! cellular_is_active_backhaul; then
 	# Custom recovery is intentionally limited to an already-active cellular backhaul.
 	# It does not select WAN/WiFi/cellular, change routes, or power the modem down because Ethernet is healthy.
 
-	if [ "$(uci -q get network.cellular.auto)" = "1" ]; then
-	    if [ "$ppp_state" != "NORMAL" ]; then
-	        if [ "$global_ping" = "1" ] && ! cellular_is_active_backhaul; then
-	            logger -t iot_keep_alive "Internet restored through non-cellular backhaul; cancelling custom cellular PPP recovery"
-	            reset_ppp_recovery
-	        else
-	            cellular_ppp_recovery_tick
-	        fi
-	    elif cellular_is_active_backhaul; then
-	        cellular_ppp_recovery_tick
-	    elif [ "$ppp_fail_count" -ne 0 ]; then
-	        reset_ppp_recovery
-	    fi
-	elif [ "$ppp_state" != "NORMAL" ] || [ "$ppp_fail_count" -ne 0 ]; then
-	    reset_ppp_recovery
+    if [ "$ppp_state" != "NORMAL" ]; then
+        if [ "$global_ping" = "1" ] && ! cellular_is_active_backhaul; then
+            logger -t iot_keep_alive "Internet restored through non-cellular backhaul; cancelling custom cellular PPP recovery"
+            reset_ppp_recovery
+        else
+            cellular_ppp_recovery_tick
+        fi
+    elif cellular_is_active_backhaul; then
+        cellular_ppp_recovery_tick
+    elif [ "$ppp_fail_count" -ne 0 ]; then
+        reset_ppp_recovery
 	fi
 
 	case $server_type in
