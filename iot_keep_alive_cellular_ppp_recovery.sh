@@ -67,7 +67,6 @@ cellular_is_pending()
 {
 	local status
 	status=$(ifstatus cellular 2>/dev/null)
-	logger -t iot_keep_alive "Stage 2: turning GSM module off"
 	[ -n "$status" ] || return 1
 
 	echo "$status" | jsonfilter -e '@.pending' 2>/dev/null | grep -q '^true$'
@@ -144,146 +143,138 @@ check_cellular_internet()
 
 power_cycle_cellular_modem()
 {
-	local cellular_tty
-	local gpio_value
-	local i
+local cellular_tty
+local gpio_value
+local i
+local ppp_pid
 
-	gpio_value="/sys/class/gpio/gpio${Cellular_CTL}/value"
-	cellular_tty=$(uci -q get network.cellular.device)
+gpio_value="/sys/class/gpio/gpio${Cellular_CTL}/value"
+cellular_tty=$(uci -q get network.cellular.device)
 
-	if [ -z "$Cellular_CTL" ] || [ ! -w "$gpio_value" ]; then
-		logger -t iot_keep_alive "Cellular modem power-cycle aborted: control GPIO unavailable"
-		return 1
-	fi
+if [ -z "$Cellular_CTL" ] || [ ! -w "$gpio_value" ]; then
+logger -t iot_keep_alive "Cellular modem power-cycle aborted: control GPIO unavailable"
+return 1
+fi
 
-	logger -t iot_keep_alive "Stage 2 cellular recovery: power-cycling GSM module"
+logger -t iot_keep_alive "Stage 2 cellular recovery: power-cycling GSM module"
 
-	ifdown cellular
-	sleep 5
+ifdown cellular
 
-	echo 1 > "$gpio_value"
-	sleep "$CELLULAR_MODEM_OFF_TIME"
+i=0
+while [ "$i" -lt "$CELLULAR_PPP_STOP_TIMEOUT" ]; do
+ppp_pid=$(find_cellular_pppd_pid)
+[ -z "$ppp_pid" ] && break
+sleep 1
+i=$((i + 1))
+done
 
-	echo 0 > "$gpio_value"
+ppp_pid=$(find_cellular_pppd_pid)
 
-	[ -n "$cellular_tty" ] || cellular_tty="/dev/ttyUSB3"
+if [ -n "$ppp_pid" ]; then
+logger -t iot_keep_alive "Stage 2: terminating cellular pppd PID $ppp_pid before modem power-cycle"
+kill -TERM "$ppp_pid" 2>/dev/null
+sleep 2
 
-	i=0
-	while [ "$i" -lt "$CELLULAR_MODEM_BOOT_TIMEOUT" ]; do
-		if [ -e "$cellular_tty" ]; then
-			logger -t iot_keep_alive "Cellular modem serial device $cellular_tty restored"
-			break
-		fi
+if kill -0 "$ppp_pid" 2>/dev/null; then
+logger -t iot_keep_alive "Stage 2: cellular pppd PID $ppp_pid did not stop; sending SIGKILL"
+kill -KILL "$ppp_pid" 2>/dev/null
+fi
+fi
 
-		sleep 5
-		i=$((i + 5))
-	done
+cleanup_stale_cellular_lock
 
-	if [ ! -e "$cellular_tty" ]; then
-			local ppp_pid
-		logger -t iot_keep_alive "Cellular modem serial device did not return after power-cycle"
-		return 1
-	fi
+logger -t iot_keep_alive "Stage 2: turning GSM module off"
+echo 1 > "$gpio_value"
+sleep "$CELLULAR_MODEM_OFF_TIME"
 
-	ifup cellular
+logger -t iot_keep_alive "Stage 2: turning GSM module on"
+echo 0 > "$gpio_value"
 
-	i=0
-	while [ "$i" -lt "$CELLULAR_MODEM_START_TIMEOUT" ]; do
-		if cellular_is_up && check_cellular_internet; then
-			logger -t iot_keep_alive "Stage 2 modem power-cycle recovery successful"
-			cellular_pending_fail_count=0
+[ -n "$cellular_tty" ] || cellular_tty="/dev/ttyUSB3"
 
-			# Give netifd time to stop the cellular PPP process cleanly.
-			i=0
-			while [ "$i" -lt "$CELLULAR_PPP_STOP_TIMEOUT" ]; do
-				ppp_pid=$(find_cellular_pppd_pid)
+i=0
+while [ "$i" -lt "$CELLULAR_MODEM_BOOT_TIMEOUT" ]; do
+if [ -e "$cellular_tty" ]; then
+logger -t iot_keep_alive "Cellular modem serial device $cellular_tty restored"
+break
+fi
 
-				[ -z "$ppp_pid" ] && break
+sleep 5
+i=$((i + 5))
+done
 
-				sleep 1
-				i=$((i + 1))
-			done
+if [ ! -e "$cellular_tty" ]; then
+logger -t iot_keep_alive "Cellular modem serial device did not return after power-cycle; handing cellular back to netifd"
+ifup cellular
+return 1
+fi
 
-			ppp_pid=$(find_cellular_pppd_pid)
+ifup cellular
 
-			if [ -n "$ppp_pid" ]; then
-				logger -t iot_keep_alive "Stage 2: terminating cellular pppd PID $ppp_pid before modem power-cycle"
-				kill -TERM "$ppp_pid" 2>/dev/null
-				sleep 2
+i=0
+while [ "$i" -lt "$CELLULAR_MODEM_START_TIMEOUT" ]; do
+if cellular_is_up && check_cellular_internet; then
+logger -t iot_keep_alive "Stage 2 modem power-cycle recovery successful"
+cellular_pending_fail_count=0
+return 0
+fi
 
-				if kill -0 "$ppp_pid" 2>/dev/null; then
-					logger -t iot_keep_alive "Stage 2: cellular pppd PID $ppp_pid did not stop; sending SIGKILL"
-					kill -KILL "$ppp_pid" 2>/dev/null
-				fi
-			fi
+sleep 5
+i=$((i + 5))
+done
 
-			cleanup_stale_cellular_lock
-		fi
-			echo 1 > "$gpio_value"
-
-		sleep 5
-			logger -t iot_keep_alive "Stage 2: turning GSM module on"
-		i=$((i + 5))
-	done
-
-	logger -t iot_keep_alive "Stage 2 modem power-cycle finished without stable Internet"
-	return 1
+logger -t iot_keep_alive "Stage 2 modem power-cycle finished without stable Internet"
+return 1
 }
-
 recover_pending_cellular_ppp()
 {
-	local ppp_pid
-	local i
+local ppp_pid
+local i
 
-	logger -t iot_keep_alive "Cellular has remained pending; starting Stage 1 targeted PPP recovery"
+logger -t iot_keep_alive "Cellular has remained pending; starting Stage 1 targeted PPP recovery"
 
-	ifdown cellular
+ifdown cellular
 
-				logger -t iot_keep_alive "Cellular modem serial device did not return after power-cycle; handing cellular back to netifd"
-				ifup cellular
-	while [ "$i" -lt "$CELLULAR_PPP_STOP_TIMEOUT" ]; do
-		ppp_pid=$(find_cellular_pppd_pid)
+i=0
+while [ "$i" -lt "$CELLULAR_PPP_STOP_TIMEOUT" ]; do
+ppp_pid=$(find_cellular_pppd_pid)
+[ -z "$ppp_pid" ] && break
+sleep 1
+i=$((i + 1))
+done
 
-		[ -z "$ppp_pid" ] && break
+ppp_pid=$(find_cellular_pppd_pid)
 
-		sleep 1
-		i=$((i + 1))
-	done
+if [ -n "$ppp_pid" ]; then
+logger -t iot_keep_alive "Terminating cellular pppd PID $ppp_pid"
+kill -TERM "$ppp_pid" 2>/dev/null
+sleep 2
 
-	ppp_pid=$(find_cellular_pppd_pid)
+if kill -0 "$ppp_pid" 2>/dev/null; then
+logger -t iot_keep_alive "Cellular pppd PID $ppp_pid did not stop; sending SIGKILL"
+kill -KILL "$ppp_pid" 2>/dev/null
+fi
+fi
 
-	if [ -n "$ppp_pid" ]; then
-		logger -t iot_keep_alive "Terminating cellular pppd PID $ppp_pid"
-		kill -TERM "$ppp_pid" 2>/dev/null
-		sleep 2
+cleanup_stale_cellular_lock
 
-		if kill -0 "$ppp_pid" 2>/dev/null; then
-			logger -t iot_keep_alive "Cellular pppd PID $ppp_pid did not stop; sending SIGKILL"
-			kill -KILL "$ppp_pid" 2>/dev/null
-		fi
-	fi
+ifup cellular
 
-	cleanup_stale_cellular_lock
+i=0
+while [ "$i" -lt "$CELLULAR_PPP_START_TIMEOUT" ]; do
+if cellular_is_up && check_cellular_internet; then
+logger -t iot_keep_alive "Stage 1 cellular PPP recovery successful"
+cellular_pending_fail_count=0
+return 0
+fi
 
-	ifup cellular
+sleep 5
+i=$((i + 5))
+done
 
-	i=0
-	while [ "$i" -lt "$CELLULAR_PPP_START_TIMEOUT" ]; do
-
-		if cellular_is_up && check_cellular_internet; then
-			logger -t iot_keep_alive "Stage 1 cellular PPP recovery successful"
-			cellular_pending_fail_count=0
-			return 0
-		fi
-
-		sleep 5
-		i=$((i + 5))
-	done
-
-	logger -t iot_keep_alive "Stage 1 cellular PPP recovery failed; escalating to modem power-cycle"
-	power_cycle_cellular_modem
+logger -t iot_keep_alive "Stage 1 cellular PPP recovery failed; escalating to modem power-cycle"
+power_cycle_cellular_modem
 }
-
 cellular_pending_recovery_tick()
 {
 	local now
