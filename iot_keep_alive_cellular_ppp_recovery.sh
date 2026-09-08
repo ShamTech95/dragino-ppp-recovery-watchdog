@@ -60,8 +60,14 @@ CELLULAR_MODEM_OFF_TIME=10
 CELLULAR_MODEM_BOOT_TIMEOUT=60
 CELLULAR_MODEM_START_TIMEOUT=90
 
+# Stage 0 recovery for cellular not started after boot.
+CELLULAR_BOOT_INACTIVE_LIMIT=3
+CELLULAR_BOOT_RECOVERY_WINDOW=600
+
 cellular_pending_fail_count=0
 cellular_last_recovery_time=0
+cellular_boot_inactive_count=0
+cellular_boot_kick_done=0
 
 cellular_is_pending()
 {
@@ -275,6 +281,76 @@ done
 logger -t iot_keep_alive "Stage 1 cellular PPP recovery failed; escalating to modem power-cycle"
 power_cycle_cellular_modem
 }
+cellular_boot_recovery_tick()
+{
+local uptime
+local cellular_tty
+local backup_mode
+local ppp_pid
+
+[ "$cellular_boot_kick_done" -eq 0 ] || return 0
+
+uptime=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+[ -n "$uptime" ] || return 0
+
+# Only handle the early-boot inactive cellular state.
+if [ "$uptime" -gt "$CELLULAR_BOOT_RECOVERY_WINDOW" ]; then
+cellular_boot_kick_done=1
+cellular_boot_inactive_count=0
+return 0
+fi
+
+# Only act when the gateway currently has no Internet.
+[ "$global_ping" -eq "$ZERO" ] || {
+cellular_boot_inactive_count=0
+return 0
+}
+
+# Preserve Dragino configuration: only consider cellular configured as backup.
+backup_mode=$(uci -q get network.cellular.backup)
+[ "$backup_mode" = "1" ] || {
+cellular_boot_inactive_count=0
+return 0
+}
+
+# Stage 1/2 recovery owns active or pending cellular states.
+if cellular_is_up || cellular_is_pending; then
+cellular_boot_inactive_count=0
+return 0
+fi
+
+# Do not interfere with an already-running cellular pppd.
+ppp_pid=$(find_cellular_pppd_pid)
+[ -z "$ppp_pid" ] || {
+cellular_boot_inactive_count=0
+return 0
+}
+
+cellular_tty=$(uci -q get network.cellular.device)
+[ -n "$cellular_tty" ] || cellular_tty="/dev/ttyUSB3"
+
+# Only request ifup when the modem serial device is actually present.
+[ -e "$cellular_tty" ] || {
+cellular_boot_inactive_count=0
+return 0
+}
+
+cellular_boot_inactive_count=$((cellular_boot_inactive_count + 1))
+
+logger -t iot_keep_alive \
+"Cellular inactive after boot check $cellular_boot_inactive_count of $CELLULAR_BOOT_INACTIVE_LIMIT"
+
+[ "$cellular_boot_inactive_count" -ge "$CELLULAR_BOOT_INACTIVE_LIMIT" ] || return 0
+
+logger -t iot_keep_alive \
+"Stage 0 boot recovery: cellular inactive with modem present; requesting ifup cellular"
+
+cellular_boot_kick_done=1
+cellular_boot_inactive_count=0
+
+ifup cellular
+}
+
 cellular_pending_recovery_tick()
 {
 	local now
@@ -680,6 +756,10 @@ do
 
 	# Only observe Dragino/netifd cellular setup state.
 	# Do not select cellular or change routes/metrics.
+	# Stage 0: recover cellular that was not started after boot.
+	cellular_boot_recovery_tick
+
+	# Stage 1/2: recover cellular that starts but remains pending.
 	cellular_pending_recovery_tick
 
 	# Control receive size < 2M
